@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HELLWAVE PUNKS Mint — Base</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.12.0/dist/ethers.umd.min.js"></script>
+
+<style>
+body{
+  margin:0;
+  background:#050505;
+  color:#fff;
+  font-family: monospace;
+}
+
+/* WRAPPER */
+.wrapper{
+  max-width:520px;
+  margin:60px auto;
+  padding:24px;
+  border:1px solid #ff0055;
+  background:#0a0a0a;
+  box-shadow: 0 0 25px #ff0055;
+}
+
+/* TITLE PUNK */
+h1{
+  text-align:center;
+  letter-spacing:0.3em;
+  margin-bottom:8px;
+  color:#ff0055;
+  text-shadow:
+    2px 2px #00ff88,
+    -2px -2px #ff00ff;
+  animation: glitch 1s infinite;
+}
+
+/* GLITCH */
+@keyframes glitch{
+  0%{transform:translate(0);}
+  20%{transform:translate(-2px,2px);}
+  40%{transform:translate(2px,-2px);}
+  60%{transform:translate(-2px,-1px);}
+  80%{transform:translate(2px,1px);}
+  100%{transform:translate(0);}
+}
+
+.sub{
+  text-align:center;
+  font-size:13px;
+  opacity:.7;
+  margin-bottom:20px;
+  color:#00ff88;
+}
+
+.supply{
+  text-align:center;
+  margin-bottom:16px;
+  font-size:14px;
+}
+
+.card{
+  border:1px solid #ff0055;
+  padding:18px;
+  box-shadow: 0 0 15px #00ff88 inset;
+}
+
+/* INPUT */
+input{
+  width:100%;
+  padding:10px;
+  background:#000;
+  border:1px solid #444;
+  color:#00ff88;
+  font-size:16px;
+  margin-bottom:12px;
+}
+
+/* BUTTONS */
+button{
+  width:100%;
+  padding:12px;
+  font-size:14px;
+  cursor:pointer;
+  border:none;
+  margin-top:6px;
+  transition:0.2s;
+}
+
+.primary{
+  background:#ff0055;
+  color:#fff;
+  box-shadow:0 0 10px #ff0055;
+}
+
+.primary:hover{
+  background:#00ff88;
+  box-shadow:0 0 20px #00ff88;
+}
+
+.outline{
+  background:transparent;
+  border:1px solid #ff0055;
+  color:#fff;
+}
+
+.status{
+  margin-top:14px;
+  font-size:13px;
+  white-space:pre-wrap;
+}
+</style>
+</head>
+
+<body>
+<div class="wrapper">
+
+<h1>HELLWAVE PUNKS</h1>
+<div class="sub">Mint on Base</div>
+
+<div id="supply" class="supply">Loading supply…</div>
+
+<div class="card">
+  <input type="number" id="qty" min="1" max="20" value="1">
+  <button class="primary" id="connectBtn">Connect Wallet</button>
+  <button class="outline" id="mintBtn" disabled>Mint</button>
+  <div id="status" class="status">Idle</div>
+</div>
+
+</div>
+
+<script>
+/* ================= CONFIG ================= */
+const CONTRACT_ADDRESS = "0xC7f46179686DD5661BC14713934646B503DF02a9";
+const RPC_URL = "https://mainnet.base.org";
+const MINT_PRICE = ethers.parseEther("0.00005");
+
+const BASE_PARAMS = {
+  chainId: "0x2105",
+  chainName: "Base",
+  nativeCurrency: {
+    name: "Ether",
+    symbol: "ETH",
+    decimals: 18
+  },
+  rpcUrls: ["https://mainnet.base.org"],
+  blockExplorerUrls: ["https://basescan.org"]
+};
+
+const ABI = [
+  "function mint(uint256 quantity) external payable",
+  "function totalMinted() view returns (uint256)",
+  "function MAX_SUPPLY() view returns (uint256)"
+];
+
+let provider, signer, contract;
+
+/* ================= HELPERS ================= */
+function log(msg){
+  document.getElementById("status").textContent = msg;
+}
+
+/* ================= LOAD SUPPLY ================= */
+(async()=>{
+  try{
+    const rpc = new ethers.JsonRpcProvider(RPC_URL);
+    const c = new ethers.Contract(CONTRACT_ADDRESS, ABI, rpc);
+    const minted = await c.totalMinted();
+    const max = await c.MAX_SUPPLY();
+    document.getElementById("supply").textContent =
+      `Minted: ${minted} / ${max}`;
+  }catch{
+    document.getElementById("supply").textContent = "Minted: ? / ?";
+  }
+})();
+
+/* ================= CONNECT ================= */
+document.getElementById("connectBtn").onclick = async ()=>{
+  try{
+    if(!window.ethereum) return log("No wallet detected");
+
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: BASE_PARAMS.chainId }]
+    }).catch(async ()=>{
+      await window.ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [BASE_PARAMS]
+      });
+    });
+
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+    contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+
+    log("Wallet connected\nReady to mint");
+    document.getElementById("mintBtn").disabled = false;
+
+  }catch(err){
+    log("Connect error:\n" + (err.message || err));
+  }
+};
+
+/* ================= MINT ================= */
+document.getElementById("mintBtn").onclick = async ()=>{
+  try{
+    const qty = parseInt(document.getElementById("qty").value);
+    if(qty < 1) return log("Invalid quantity");
+
+    const total = MINT_PRICE * BigInt(qty);
+
+    log("Sending mint tx…");
+    const tx = await contract.mint(qty,{
+      value: total,
+      gasLimit: 300000n * BigInt(qty)
+    });
+
+    log("Waiting confirmation…\n" + tx.hash);
+    await tx.wait();
+
+    log("✅ Mint confirmed\n" + tx.hash);
+
+  }catch(err){
+    log("Mint error:\n" + (err.reason || err.message || err));
+  }
+};
+</script>
+
+</body>
+</html>
